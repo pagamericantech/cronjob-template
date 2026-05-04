@@ -16,7 +16,26 @@ permissions:
   contents: write
 
 jobs:
+  # Gate: enquanto bootstrap.yml existir, o repo ainda não foi registrado em
+  # platform-applications. Bloqueia o build/deploy até o bootstrap se autodeletar.
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f .github/workflows/bootstrap.yml ]; then
+            echo "::warning::Skipping deploy — rode o workflow 'Bootstrap app registration' primeiro pra registrar o app em platform-applications."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-deploy:
+    needs: precheck
+    if: needs.precheck.outputs.ready == 'true'
     uses: pagamericantech/platform-workflows/.github/workflows/_reusable-docker-build-push.yml@main
     with:
       image_name: __IMAGE_NAME__
