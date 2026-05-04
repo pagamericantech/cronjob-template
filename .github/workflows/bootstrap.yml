@@ -1,0 +1,288 @@
+name: Bootstrap app registration
+
+# Roda manualmente UMA vez no repo recém-criado a partir do template.
+# Abre PR em platform-applications scaffoldando apps/<app>/{argocd,vault}/terragrunt.hcl
+# e depois deleta esse próprio workflow.
+#
+# Pré-req: GitHub App ORG_GITOPS_BOT instalado em pagamericantech com permissão
+# Contents: Write + Pull requests: Write em platform-applications.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: Cluster alvo (vira label apps.deploy/<target_env>=true e mount Vault)
+        required: true
+        type: choice
+        default: shared-services
+        options:
+          - shared-services
+          - payments
+          - staging
+          - workspace
+
+permissions:
+  contents: write
+
+env:
+  CHART_NAME: platform-k8s-cronjob-chart
+  REGISTRY_REPO: pagamericantech/platform-applications
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    # Guard duplo: evita rodar no template original.
+    if: github.repository != 'pagamericantech/cronjob-template'
+    steps:
+      - name: Compute app metadata
+        id: meta
+        run: |
+          APP_NAME="${GITHUB_REPOSITORY##*/}"
+          echo "app_name=${APP_NAME}" >> "$GITHUB_OUTPUT"
+          echo "target_cluster=k8s-${{ inputs.target_env }}" >> "$GITHUB_OUTPUT"
+          echo "branch=bootstrap/register-${APP_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint app token (write em platform-applications)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ORG_GITOPS_BOT_APP_ID }}
+          private-key: ${{ secrets.ORG_GITOPS_BOT_PRIVATE_KEY }}
+          owner: pagamericantech
+          repositories: platform-applications
+
+      - name: Resolve bot identity
+        id: bot
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const slug = '${{ steps.app-token.outputs.app-slug }}';
+            const { data } = await github.rest.users.getByUsername({ username: `${slug}[bot]` });
+            core.setOutput('name', `${slug}[bot]`);
+            core.setOutput('email', `${data.id}+${slug}[bot]@users.noreply.github.com`);
+
+      - name: Checkout platform-applications
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REGISTRY_REPO }}
+          token: ${{ steps.app-token.outputs.token }}
+          path: platform-applications
+          fetch-depth: 0
+
+      - name: Bail out if app já registrado
+        working-directory: platform-applications
+        run: |
+          if [ -d "apps/${{ steps.meta.outputs.app_name }}" ]; then
+            echo "::error::apps/${{ steps.meta.outputs.app_name }} já existe em ${REGISTRY_REPO}. Aborta."
+            exit 1
+          fi
+
+      - name: Scaffold apps/<app>/argocd + vault
+        working-directory: platform-applications
+        env:
+          APP_NAME: ${{ steps.meta.outputs.app_name }}
+          TARGET_ENV: ${{ inputs.target_env }}
+          TARGET_CLUSTER: ${{ steps.meta.outputs.target_cluster }}
+          CHART_NAME: ${{ env.CHART_NAME }}
+        run: |
+          set -euo pipefail
+          mkdir -p "apps/${APP_NAME}/argocd" "apps/${APP_NAME}/vault"
+
+          cat > "apps/${APP_NAME}/argocd/terragrunt.hcl" <<HCL
+          include "root" {
+            path = find_in_parent_folders("root.hcl")
+          }
+
+          locals {
+            region_vars = read_terragrunt_config(find_in_parent_folders("region.hcl"))
+            env_vars    = read_terragrunt_config(find_in_parent_folders("env.hcl"))
+
+            app_name = "${APP_NAME}"
+
+            chart_registry = "946819142358.dkr.ecr.us-east-1.amazonaws.com/charts"
+            chart_name     = "${CHART_NAME}"
+            chart_version  = "1.1.x"
+
+            target_env      = "${TARGET_ENV}"
+            target_clusters = ["${TARGET_CLUSTER}"]
+          }
+
+          terraform {
+            source = "../../../../platform-infrastructure/modules/argocd-applicationset"
+          }
+
+          inputs = {
+            name             = local.app_name
+            namespace        = "argocd"
+            hub_cluster_name = local.region_vars.locals.hub_cluster_name
+
+            go_template = true
+
+            generators = [
+              {
+                clusters = {
+                  selector = {
+                    matchLabels = {
+                      "apps.deploy/\${local.target_env}" = "true"
+                    }
+                  }
+                }
+              }
+            ]
+
+            template = {
+              metadata = {
+                name = "\${local.app_name}-{{trimPrefix \"k8s-\" .name}}"
+                labels = {
+                  app = local.app_name
+                }
+              }
+              spec = {
+                project = local.app_name
+
+                sources = [
+                  {
+                    repoURL        = local.chart_registry
+                    chart          = local.chart_name
+                    targetRevision = local.chart_version
+                    helm = {
+                      releaseName             = local.app_name
+                      ignoreMissingValueFiles = true
+                      valueFiles = [
+                        "\$values/chart/values.yaml",
+                        "\$values/chart/values-{{.name}}.yaml",
+                      ]
+                    }
+                  },
+                  {
+                    repoURL        = "https://github.com/pagamericantech/\${local.app_name}.git"
+                    targetRevision = "main"
+                    ref            = "values"
+                  },
+                ]
+
+                destination = {
+                  name      = "{{.name}}"
+                  namespace = local.app_name
+                }
+                syncPolicy = {
+                  automated = {
+                    prune    = true
+                    selfHeal = true
+                  }
+                  syncOptions = [
+                    "CreateNamespace=true",
+                    "ServerSideApply=true",
+                  ]
+                }
+                ignoreDifferences = [
+                  {
+                    group = "gateway.networking.k8s.io"
+                    kind  = "HTTPRoute"
+                    jqPathExpressions = [
+                      ".spec.parentRefs[]?.group",
+                      ".spec.parentRefs[]?.kind",
+                      ".spec.rules[]?.backendRefs",
+                    ]
+                  },
+                ]
+              }
+            }
+
+            labels = merge(local.region_vars.locals.tags, {
+              app = local.app_name
+            })
+
+            project_destinations = [
+              for c in local.target_clusters : {
+                name      = c
+                namespace = local.app_name
+              }
+            ]
+            project_description = "Runtime application project for \${local.app_name}"
+          }
+          HCL
+
+          cat > "apps/${APP_NAME}/vault/terragrunt.hcl" <<HCL
+          include "root" {
+            path = find_in_parent_folders("root.hcl")
+          }
+
+          locals {
+            app_name       = "${APP_NAME}"
+            target_cluster = "${TARGET_ENV}"
+          }
+
+          terraform {
+            source = "../../../../platform-infrastructure/modules/vault-kv-app"
+          }
+
+          inputs = {
+            app_name   = local.app_name
+            mount_path = local.target_cluster
+
+            create_kubernetes_role = false
+          }
+          HCL
+
+      - name: Commit + push branch
+        working-directory: platform-applications
+        env:
+          BRANCH: ${{ steps.meta.outputs.branch }}
+          APP_NAME: ${{ steps.meta.outputs.app_name }}
+        run: |
+          set -euo pipefail
+          git config user.name  "${{ steps.bot.outputs.name }}"
+          git config user.email "${{ steps.bot.outputs.email }}"
+          git checkout -b "${BRANCH}"
+          git add "apps/${APP_NAME}"
+          git commit -m "feat(${APP_NAME}): register app via bootstrap from ${GITHUB_REPOSITORY}"
+          git push origin "${BRANCH}" --force-with-lease
+
+      - name: Open PR
+        working-directory: platform-applications
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ steps.meta.outputs.branch }}
+          APP_NAME: ${{ steps.meta.outputs.app_name }}
+          TARGET_ENV: ${{ inputs.target_env }}
+        run: |
+          set -euo pipefail
+          gh pr create \
+            --repo "${REGISTRY_REPO}" \
+            --base main \
+            --head "${BRANCH}" \
+            --title "feat(${APP_NAME}): register app (target_env=${TARGET_ENV})" \
+            --body "Auto-bootstrap a partir de https://github.com/${GITHUB_REPOSITORY}.
+
+          Cria \`apps/${APP_NAME}/argocd\` + \`apps/${APP_NAME}/vault\`.
+
+          - chart: \`${CHART_NAME}\`
+          - target_env: \`${TARGET_ENV}\`
+          - target_cluster: \`k8s-${TARGET_ENV}\`
+
+          Revise antes de mergear: bumpe \`chart_version\`, ajuste \`target_clusters\` se o app rodar em mais de um cluster, e confirme que o cluster Secret tem o label \`apps.deploy/${TARGET_ENV}=true\` (em platform-infrastructure)."
+
+      - name: Self-destruct (apaga este workflow no repo de origem)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const path = '.github/workflows/bootstrap.yml';
+            const { owner, repo } = context.repo;
+            const branch = context.ref.replace('refs/heads/', '');
+            const { data: file } = await github.rest.repos.getContent({ owner, repo, path, ref: branch });
+            await github.rest.repos.deleteFile({
+              owner, repo, path, branch,
+              message: `chore: remove bootstrap workflow (já registrado em ${process.env.REGISTRY_REPO})`,
+              sha: file.sha,
+              committer: {
+                name: '${{ steps.bot.outputs.name }}',
+                email: '${{ steps.bot.outputs.email }}',
+              },
+              author: {
+                name: '${{ steps.bot.outputs.name }}',
+                email: '${{ steps.bot.outputs.email }}',
+              },
+            });
