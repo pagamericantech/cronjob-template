@@ -193,7 +193,8 @@ jobs:
             }
 
             labels = merge(local.region_vars.locals.tags, {
-              app = local.app_name
+              app        = local.app_name
+              CostCenter = local.target_env
             })
 
             project_destinations = [
