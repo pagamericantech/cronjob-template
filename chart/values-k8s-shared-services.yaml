@@ -1,0 +1,54 @@
+# Chart: https://github.com/pagamericantech/platform-charts/tree/main/platform-k8s-cronjob-chart
+#
+# Override values pra deploy do cronjob __APP_NAME__ no cluster k8s-shared-services.
+# Sem replicaCount nem autoscaling — k8s CronJob controller faz o scheduling e
+# spawn dos Jobs. `image.tag` é atualizado pelo workflow .github/workflows/build_and_deploy.yaml
+# após cada build de main.
+
+image:
+  repository: 946819142358.dkr.ecr.us-east-1.amazonaws.com/__IMAGE_NAME__
+  pullPolicy: IfNotPresent
+  tag: "REPLACE_ME"
+# ── CronJob spec — ajuste o schedule e os limits conforme o job ──────────────
+# ref: https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/
+cronjob:
+  # Quartz-like (minute hour day-of-month month day-of-week). Default: hourly.
+  schedule: "0 * * * *"
+  # Timezone IANA opcional. Ex: "America/Sao_Paulo". Default: UTC.
+  timeZone: ""
+  # Forbid pula próxima execução se a anterior ainda roda — default seguro.
+  concurrencyPolicy: Forbid
+  suspend: false
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  # Retries antes de marcar Job como falho. 0 = sem retry.
+  backoffLimit: 0
+  # Auto-cleanup do Job após N segundos. Default: 1 dia.
+  ttlSecondsAfterFinished: 86400
+  restartPolicy: OnFailure
+resources:
+  memory: "256Mi"
+  cpu: "100m"
+labels:
+  cost-center: shared-services
+  env: production
+  project: __APP_NAME__
+  owner: __OWNER__
+  support: __OWNER__
+  github-org: pagamericantech
+  github-repo: __APP_NAME__
+annotations:
+  documentation: https://github.com/pagamericantech/__APP_NAME__
+application:
+  name: __APP_NAME__
+  language: __LANGUAGE__
+  environment: production
+cloudProviders:
+  aws:
+    enabled: true
+    # Pull de ECR via IRSA/PodIdentity do namespace — não precisa de imagePullSecret.
+    imagePullSecrets:
+      name:
+secrets:
+  keys: []
+  remoteKey: ""

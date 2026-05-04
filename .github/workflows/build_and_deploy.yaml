@@ -1,0 +1,32 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+    # Mudanças em chart/** não disparam rebuild — o values é consumido pelo
+    # ArgoCD diretamente. Inclui o auto-commit da própria pipeline (que bumpa
+    # image.tag no values) e edições manuais de override.
+    paths-ignore:
+      - "chart/**"
+      - "**.md"
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  build-and-deploy:
+    uses: pagamericantech/platform-workflows/.github/workflows/_reusable-docker-build-push.yml@main
+    with:
+      image_name: __IMAGE_NAME__
+      values_file: chart/values-k8s-shared-services.yaml
+      # Nodepool critical ou noncritical utilizam arm64 (Graviton).
+      # Runner self-hosted também é arm64, então build é nativo (sem QEMU).
+      platform: linux/arm64
+      # Notifica platform-infrastructure via repository_dispatch quando um repo
+      # ECR novo é criado — o listener ecr-addons-apply aplica cross-account
+      # policy + lifecycle.
+      dispatch_repo: pagamericantech/platform-infrastructure
+      dispatch_app_id: ${{ vars.ORG_DISPATCH_APP_ID }}
+    secrets: inherit
