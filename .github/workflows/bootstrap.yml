@@ -42,14 +42,16 @@ jobs:
           echo "target_cluster=k8s-${{ inputs.target_env }}" >> "$GITHUB_OUTPUT"
           echo "branch=bootstrap/register-${APP_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Mint app token (write em platform-applications)
+      - name: Mint app token (write em platform-applications + self-destruct neste repo)
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.ORG_GITOPS_BOT_APP_ID }}
           private-key: ${{ secrets.ORG_GITOPS_BOT_PRIVATE_KEY }}
           owner: pagamericantech
-          repositories: platform-applications
+          repositories: |
+            platform-applications
+            ${{ github.event.repository.name }}
 
       - name: Resolve bot identity
         id: bot
@@ -267,7 +269,7 @@ jobs:
       - name: Self-destruct (apaga este workflow no repo de origem)
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const path = '.github/workflows/bootstrap.yml';
             const { owner, repo } = context.repo;
