@@ -293,6 +293,12 @@ jobs:
           if [ -f "chart/values-k8s-aws-account.yaml" ]; then
             git mv "chart/values-k8s-aws-account.yaml" "chart/values-k8s-${TARGET_ENV}.yaml"
           fi
+          VALUES_FILE="chart/values-k8s-${TARGET_ENV}.yaml"
+          if [ -f "$VALUES_FILE" ]; then
+            sed -i "s|__IMAGE_NAME__|${APP_NAME}|g" "$VALUES_FILE"
+            sed -i "s|__APP_NAME__|${APP_NAME}|g" "$VALUES_FILE"
+            sed -i "s|k8s-aws-account|k8s-${TARGET_ENV}|g" "$VALUES_FILE"
+          fi
 
           git rm .github/workflows/bootstrap.yml
 
