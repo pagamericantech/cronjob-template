@@ -104,7 +104,7 @@ jobs:
 
             chart_registry = "946819142358.dkr.ecr.us-east-1.amazonaws.com/charts"
             chart_name     = "${CHART_NAME}"
-            chart_version  = "1.1.x"
+            chart_version  = "1.x.x"
 
             target_env      = "${TARGET_ENV}"
             target_clusters = ["${TARGET_CLUSTER}"]
