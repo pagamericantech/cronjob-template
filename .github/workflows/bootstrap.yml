@@ -20,6 +20,19 @@ on:
           - payments
           - staging
           - workspace
+      owner:
+        description: Time/squad responsável (preenche labels owner/support no chart values)
+        required: true
+        type: string
+      language:
+        description: Linguagem da app (preenche application.language no chart values)
+        required: true
+        type: choice
+        default: node
+        options:
+          - go
+          - node
+          - python
 
 permissions:
   contents: write
@@ -282,6 +295,8 @@ jobs:
         env:
           APP_NAME: ${{ steps.meta.outputs.app_name }}
           TARGET_ENV: ${{ inputs.target_env }}
+          OWNER: ${{ inputs.owner }}
+          LANGUAGE: ${{ inputs.language }}
         run: |
           set -euo pipefail
           git config user.name  "${{ steps.bot.outputs.name }}"
@@ -297,6 +312,8 @@ jobs:
           if [ -f "$VALUES_FILE" ]; then
             sed -i "s|__IMAGE_NAME__|${APP_NAME}|g" "$VALUES_FILE"
             sed -i "s|__APP_NAME__|${APP_NAME}|g" "$VALUES_FILE"
+            sed -i "s|__OWNER__|${OWNER}|g" "$VALUES_FILE"
+            sed -i "s|__LANGUAGE__|${LANGUAGE}|g" "$VALUES_FILE"
             sed -i "s|k8s-aws-account|k8s-${TARGET_ENV}|g" "$VALUES_FILE"
           fi
 
