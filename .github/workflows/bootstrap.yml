@@ -127,8 +127,16 @@ jobs:
             chart_name     = "${CHART_NAME}"
             chart_version  = "1.x.x"
 
-            target_env      = "${TARGET_ENV}"
-            target_clusters = ["${TARGET_CLUSTER}"]
+            target_env = "${TARGET_ENV}"
+
+            # k8s-staging carrega apps.deploy/payments=true e apps.deploy/workspace=true
+            # (ver platform-infrastructure/.../argocd-clusters/terragrunt.hcl), entao o AS
+            # ja fanouta pra staging nesses envs. AppProject precisa permitir esses destinos.
+            staging_mirrored_envs = ["workspace", "payments"]
+            target_clusters = concat(
+              ["k8s-\${local.target_env}"],
+              contains(local.staging_mirrored_envs, local.target_env) ? ["k8s-staging"] : [],
+            )
           }
 
           terraform {
@@ -238,8 +246,17 @@ jobs:
           }
 
           locals {
-            app_name       = "${APP_NAME}"
-            target_cluster = "${TARGET_ENV}"
+            app_name   = "${APP_NAME}"
+            target_env = "${TARGET_ENV}"
+
+            # Mounts Vault onde criar subpath. Cada cluster tem seu proprio kubernetes auth
+            # backend, entao mirror em staging precisa de subpath proprio. Mesma regra do
+            # AppProject — ver platform-infrastructure/.../argocd-clusters/terragrunt.hcl.
+            staging_mirrored_envs = ["workspace", "payments"]
+            target_clusters = concat(
+              [local.target_env],
+              contains(local.staging_mirrored_envs, local.target_env) ? ["staging"] : [],
+            )
           }
 
           terraform {
@@ -247,8 +264,8 @@ jobs:
           }
 
           inputs = {
-            app_name   = local.app_name
-            mount_path = local.target_cluster
+            app_name    = local.app_name
+            mount_paths = local.target_clusters
 
             create_kubernetes_role = false
           }
@@ -288,9 +305,9 @@ jobs:
 
           - chart: \`${CHART_NAME}\`
           - target_env: \`${TARGET_ENV}\`
-          - target_cluster: \`k8s-${TARGET_ENV}\`
+          - target_clusters: derivado de \`target_env\` (\`workspace\`/\`payments\` incluem \`k8s-staging\` como mirror; \`shared-services\` so o hub)
 
-          Revise antes de mergear: bumpe \`chart_version\`, ajuste \`target_clusters\` se o app rodar em mais de um cluster, e confirme que o cluster Secret tem o label \`apps.deploy/${TARGET_ENV}=true\` (em platform-infrastructure)."
+          Revise antes de mergear: bumpe \`chart_version\` e confirme que o cluster Secret tem o label \`apps.deploy/${TARGET_ENV}=true\` (em platform-infrastructure)."
 
       - name: Checkout source repo (pra patch + self-destruct)
         uses: actions/checkout@v4
@@ -325,7 +342,34 @@ jobs:
             sed -i "s|__LANGUAGE__|${LANGUAGE}|g" "$VALUES_FILE"
             sed -i "s|__NODEPOOL__|${NODEPOOL}|g" "$VALUES_FILE"
             sed -i "s|k8s-aws-account|k8s-${TARGET_ENV}|g" "$VALUES_FILE"
+
+            # Quando o cluster alvo eh o proprio staging, o values precisa refletir
+            # env/environment=staging. Pros mirrors (workspace/payments) o ajuste e
+            # feito no bloco de copia logo abaixo.
+            if [ "${TARGET_ENV}" = "staging" ]; then
+              sed -i "s|env: production|env: staging|" "$VALUES_FILE"
+              sed -i "s|environment: production|environment: staging|" "$VALUES_FILE"
+            fi
           fi
+
+          # Mirror pra staging quando target_env e workspace ou payments — mesma regra
+          # do AppProject e do vault. Cria values-k8s-staging.yaml como copia do primario,
+          # trocando referencias do cluster alvo. Override de tamanho/tags fica pra
+          # revisao manual depois do bootstrap.
+          case "${TARGET_ENV}" in
+            workspace|payments)
+              if [ -f "$VALUES_FILE" ]; then
+                STAGING_FILE="chart/values-k8s-staging.yaml"
+                cp "$VALUES_FILE" "$STAGING_FILE"
+                sed -i "s|k8s-${TARGET_ENV}|k8s-staging|g" "$STAGING_FILE"
+                # Marca explicitamente o ambiente — o values primario tem
+                # env/environment=production e o mirror precisa refletir staging.
+                sed -i "s|env: production|env: staging|" "$STAGING_FILE"
+                sed -i "s|environment: production|environment: staging|" "$STAGING_FILE"
+                git add "$STAGING_FILE"
+              fi
+              ;;
+          esac
 
           git rm .github/workflows/bootstrap.yml
 

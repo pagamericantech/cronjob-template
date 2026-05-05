@@ -30,7 +30,7 @@ resources:
   memory: "256Mi"
   cpu: "100m"
 labels:
-  cost-center: shared-services
+  cost-center: k8s-aws-account
   env: production
   project: __APP_NAME__
   owner: __OWNER__
