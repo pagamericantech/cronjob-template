@@ -60,5 +60,7 @@ cloudProviders:
     imagePullSecrets:
       name:
 secrets:
-  keys: []
-  remoteKey: ""
+  remoteKey: __APP_NAME__
+  reloadEnabled: true # when set to true, after changing the secret the container is automatically restarted
+  envVarEnabled: false # set it to true if you want to use env vars instead of mounting volumes
+  loadAllKeys: true # set it to true if you want to load all keys automatically (without having to specify them)
