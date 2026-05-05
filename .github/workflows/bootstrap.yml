@@ -329,5 +329,5 @@ jobs:
 
           git rm .github/workflows/bootstrap.yml
 
-          git commit -m "chore: bootstrap complete — registered in ${REGISTRY_REPO} [skip ci]"
+          git commit -am "chore: bootstrap complete — registered in ${REGISTRY_REPO} [skip ci]"
           git push origin HEAD:${{ github.ref_name }}
