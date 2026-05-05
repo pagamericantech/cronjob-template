@@ -43,6 +43,16 @@ application:
   name: __APP_NAME__
   language: __LANGUAGE__
   environment: production
+# Node placement — NodePools `noncritical`/`critical` têm taint
+# `workload=<name>:NoSchedule`, então precisa de label match (nodeSelector)
+# E toleration ao mesmo tempo. nodepool é escolhido no bootstrap.
+nodeSelector:
+  workload: __NODEPOOL__
+tolerations:
+  - key: workload
+    operator: Equal
+    value: __NODEPOOL__
+    effect: NoSchedule
 cloudProviders:
   aws:
     enabled: true

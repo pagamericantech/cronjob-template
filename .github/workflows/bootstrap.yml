@@ -33,6 +33,14 @@ on:
           - go
           - node
           - python
+      nodepool:
+        description: Karpenter NodePool (vira nodeSelector + toleration workload=<choice>)
+        required: true
+        type: choice
+        default: noncritical
+        options:
+          - noncritical
+          - critical
 
 permissions:
   contents: write
@@ -297,6 +305,7 @@ jobs:
           TARGET_ENV: ${{ inputs.target_env }}
           OWNER: ${{ inputs.owner }}
           LANGUAGE: ${{ inputs.language }}
+          NODEPOOL: ${{ inputs.nodepool }}
         run: |
           set -euo pipefail
           git config user.name  "${{ steps.bot.outputs.name }}"
@@ -314,6 +323,7 @@ jobs:
             sed -i "s|__APP_NAME__|${APP_NAME}|g" "$VALUES_FILE"
             sed -i "s|__OWNER__|${OWNER}|g" "$VALUES_FILE"
             sed -i "s|__LANGUAGE__|${LANGUAGE}|g" "$VALUES_FILE"
+            sed -i "s|__NODEPOOL__|${NODEPOOL}|g" "$VALUES_FILE"
             sed -i "s|k8s-aws-account|k8s-${TARGET_ENV}|g" "$VALUES_FILE"
           fi
 
