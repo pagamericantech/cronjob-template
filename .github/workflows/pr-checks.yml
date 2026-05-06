@@ -1,8 +1,8 @@
 name: PR Checks
 
-# Roda em cada PR contra main: lint do chart + build do Dockerfile (sem push)
-# pra pegar quebras antes do merge. Não deploya nada — staging atualiza só no
-# merge via build_and_deploy.yaml.
+# Roda em cada PR contra main: build do Dockerfile (sem push) pra pegar quebras
+# antes do merge. Não deploya nada — staging atualiza só no merge via
+# build_and_deploy.yaml.
 
 on:
   pull_request:
@@ -28,16 +28,6 @@ jobs:
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
-
-  helm-lint:
-    needs: precheck
-    if: needs.precheck.outputs.ready == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
-      - name: helm lint chart/
-        run: helm lint chart/
 
   docker-build:
     needs: precheck

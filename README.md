@@ -24,7 +24,7 @@ Para outros tipos de workload, use o template correspondente:
 
 O fluxo é idêntico aos outros templates:
 
-1. **PR aberta** → `pr-checks.yml` roda `helm lint chart/` + `docker build` (sem push).
+1. **PR aberta** → `pr-checks.yml` roda `docker build` (sem push) pra validar o Dockerfile.
 2. **Merge em `main`** → `build_and_deploy.yaml` builda + pusha imagem e bumpa `image.tag`. Pra `target_env ∈ {workspace, payments}`, bump em `chart/values-k8s-staging.yaml` (CD contínuo de staging); pros outros, bump no values primário.
 3. **ArgoCD staging** sincroniza e cria/atualiza o `CronJob` no cluster `k8s-staging`.
 4. **Release pra prod** → workflow `Release to production` (manual via Actions UI). Lê `image.tag` de staging, bumpa o values primário, force-pusha branch `release`.
