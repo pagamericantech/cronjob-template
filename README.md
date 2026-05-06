@@ -22,9 +22,20 @@ Para outros tipos de workload, use o template correspondente:
 └── .gitignore
 ```
 
-O fluxo é idêntico aos outros templates: push em `main` → build/push pra ECR →
-bump da `image.tag` no values → reconcile do ArgoCD → deploy via chart
-compartilhado, que cria um `CronJob` (não Deployment).
+O fluxo é idêntico aos outros templates:
+
+1. **PR aberta** → `pr-checks.yml` roda `helm lint chart/` + `docker build` (sem push).
+2. **Merge em `main`** → `build_and_deploy.yaml` builda + pusha imagem e bumpa `image.tag`. Pra `target_env ∈ {workspace, payments}`, bump em `chart/values-k8s-staging.yaml` (CD contínuo de staging); pros outros, bump no values primário.
+3. **ArgoCD staging** sincroniza e cria/atualiza o `CronJob` no cluster `k8s-staging`.
+4. **Release pra prod** → workflow `Release to production` (manual via Actions UI). Lê `image.tag` de staging, bumpa o values primário, force-pusha branch `release`.
+5. **ArgoCD prod** (workspace/payments) segue `release` e atualiza o CronJob.
+
+> ℹ️ Apps `target_env ∈ {staging, shared-services}` não têm release flow — o bootstrap deleta o `release.yml`. Rollback de prod: re-run do `Release to production` apontando pra commit anterior.
+
+### Branch protection recomendada
+
+- **`release`** branch: bloquear push direto, só o workflow força-push.
+- **`chart/values-k8s-${target_env}.yaml`** em `.github/CODEOWNERS`: evita edição humana conflitando com o release.yml.
 
 ## Como criar um novo cronjob a partir desse template
 

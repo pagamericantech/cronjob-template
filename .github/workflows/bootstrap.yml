@@ -133,10 +133,15 @@ jobs:
             # (ver platform-infrastructure/.../argocd-clusters/terragrunt.hcl), entao o AS
             # ja fanouta pra staging nesses envs. AppProject precisa permitir esses destinos.
             staging_mirrored_envs = ["workspace", "payments"]
+            uses_release_flow     = contains(local.staging_mirrored_envs, local.target_env)
             target_clusters = concat(
               ["k8s-\${local.target_env}"],
-              contains(local.staging_mirrored_envs, local.target_env) ? ["k8s-staging"] : [],
+              local.uses_release_flow ? ["k8s-staging"] : [],
             )
+            # targetRevision do source de values: cluster com env=staging tracka `main` (CD continuo
+            # de staging); env=production tracka branch `release` (force-pushed pelo release.yml).
+            # Apps sem mirror em staging (so um cluster) sempre trackeam main.
+            target_revision = local.uses_release_flow ? "{{if eq .metadata.labels.env \"staging\"}}main{{else}}release{{end}}" : "main"
           }
 
           terraform {
@@ -188,7 +193,7 @@ jobs:
                   },
                   {
                     repoURL        = "https://github.com/pagamericantech/\${local.app_name}.git"
-                    targetRevision = "main"
+                    targetRevision = local.target_revision
                     ref            = "values"
                   },
                 ]
@@ -329,7 +334,16 @@ jobs:
           git config user.email "${{ steps.bot.outputs.email }}"
 
           sed -i "s|image_name: __IMAGE_NAME__|image_name: ${APP_NAME}|" .github/workflows/build_and_deploy.yaml
-          sed -i -E "s|values_file: chart/values-k8s-[a-z0-9-]+\.yaml|values_file: chart/values-k8s-${TARGET_ENV}.yaml|" .github/workflows/build_and_deploy.yaml
+
+          # Apps com mirror em staging (workspace/payments) bumpam o values do staging
+          # — main vira CD continuo de staging. Prod fica congelado ate Fase 2 (release.yml)
+          # automatizar a promocao. Apps sem mirror (staging/shared-services) usam o values
+          # primario direto (nao tem separacao integration/prod).
+          case "${TARGET_ENV}" in
+            workspace|payments) DEPLOY_VALUES="chart/values-k8s-staging.yaml" ;;
+            *) DEPLOY_VALUES="chart/values-k8s-${TARGET_ENV}.yaml" ;;
+          esac
+          sed -i -E "s|values_file: chart/values-k8s-[a-z0-9-]+\.yaml|values_file: ${DEPLOY_VALUES}|" .github/workflows/build_and_deploy.yaml
 
           if [ -f "chart/values-k8s-aws-account.yaml" ]; then
             git mv "chart/values-k8s-aws-account.yaml" "chart/values-k8s-${TARGET_ENV}.yaml"
@@ -368,6 +382,17 @@ jobs:
                 sed -i "s|environment: production|environment: staging|" "$STAGING_FILE"
                 git add "$STAGING_FILE"
               fi
+              ;;
+          esac
+
+          # release.yml so faz sentido em apps com mirror staging→prod (workspace/payments).
+          # Apps sem mirror nao tem promocao e o arquivo deve ser removido.
+          case "${TARGET_ENV}" in
+            workspace|payments)
+              sed -i "s|__TARGET_ENV__|${TARGET_ENV}|g" .github/workflows/release.yml
+              ;;
+            *)
+              git rm .github/workflows/release.yml
               ;;
           esac
 

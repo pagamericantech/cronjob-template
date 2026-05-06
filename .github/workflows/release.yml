@@ -1,0 +1,85 @@
+name: Release to production
+
+# Promove a image.tag atual de chart/values-k8s-staging.yaml pra
+# chart/values-k8s-__TARGET_ENV__.yaml e force-push branch `release` —
+# que e o que o ArgoCD prod (cluster workspace/payments) segue via
+# targetRevision condicional.
+#
+# Bootstrap deleta esse arquivo em apps sem mirror (target_env=staging|shared-services).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit/branch a promover (default = main HEAD)
+        required: false
+        default: main
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  PRIMARY_VALUES: chart/values-k8s-__TARGET_ENV__.yaml
+  STAGING_VALUES: chart/values-k8s-staging.yaml
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Read tag from staging values
+        id: tag
+        run: |
+          set -euo pipefail
+          if [ ! -f "$STAGING_VALUES" ]; then
+            echo "::error::$STAGING_VALUES nao existe."
+            exit 1
+          fi
+          TAG=$(yq '.image.tag' "$STAGING_VALUES")
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ] || [ "$TAG" = "REPLACE_ME" ]; then
+            echo "::error::image.tag invalido em $STAGING_VALUES: '$TAG'. Builda main primeiro."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "::notice::Promovendo image.tag = $TAG"
+
+      - name: Bump primary values
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$PRIMARY_VALUES" ]; then
+            echo "::error::$PRIMARY_VALUES nao existe."
+            exit 1
+          fi
+          yq -i ".image.tag = \"${TAG}\"" "$PRIMARY_VALUES"
+
+      - name: Commit + push main + force-push release
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet "$PRIMARY_VALUES"; then
+            echo "::notice::$PRIMARY_VALUES ja esta com tag ${TAG}. So avancando branch release."
+          else
+            git add "$PRIMARY_VALUES"
+            git commit -m "release: bump $(basename $PRIMARY_VALUES .yaml) to ${TAG} [skip ci]"
+            git push origin HEAD:main
+          fi
+
+          # Fast-forward (ou force-push) branch release pro commit atual.
+          # Force-with-lease pra detectar push concorrente em release.
+          if git ls-remote --exit-code origin release >/dev/null 2>&1; then
+            git fetch origin release
+            git push origin HEAD:release --force-with-lease=release:$(git rev-parse origin/release)
+          else
+            git push origin HEAD:release
+          fi

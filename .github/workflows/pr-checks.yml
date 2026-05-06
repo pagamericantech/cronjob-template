@@ -1,0 +1,57 @@
+name: PR Checks
+
+# Roda em cada PR contra main: lint do chart + build do Dockerfile (sem push)
+# pra pegar quebras antes do merge. Não deploya nada — staging atualiza só no
+# merge via build_and_deploy.yaml.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Gate: enquanto bootstrap.yml existir, o repo ainda não foi registrado em
+  # platform-applications. Mesma lógica de build_and_deploy.yaml.
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f .github/workflows/bootstrap.yml ]; then
+            echo "::warning::Skipping checks — rode 'Bootstrap app registration' primeiro."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  helm-lint:
+    needs: precheck
+    if: needs.precheck.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: helm lint chart/
+        run: helm lint chart/
+
+  docker-build:
+    needs: precheck
+    if: needs.precheck.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build sem push — valida Dockerfile
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          platforms: linux/arm64
+          tags: ${{ github.event.repository.name }}:pr-${{ github.event.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
