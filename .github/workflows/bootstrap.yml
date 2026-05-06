@@ -396,6 +396,17 @@ jobs:
               ;;
           esac
 
+          # CODEOWNERS — protege os values do chart, que sao mantidos pelos workflows
+          # build_and_deploy.yaml (bump em staging) e release.yml (bump em primario).
+          # Edicao humana nesses arquivos conflita com os bumps automaticos.
+          mkdir -p .github
+          cat > .github/CODEOWNERS <<CODEOWNERS
+          # Values do chart sao mantidos pelos workflows (build_and_deploy.yaml + release.yml).
+          # Edicao humana exige review dos times de plataforma e engenharia.
+          chart/values-k8s-*.yaml @pagamericantech/infrastructure @pagamericantech/engineering
+          CODEOWNERS
+          git add .github/CODEOWNERS
+
           git rm .github/workflows/bootstrap.yml
 
           git commit -am "chore: bootstrap complete — registered in ${REGISTRY_REPO} [skip ci]"

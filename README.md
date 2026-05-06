@@ -32,15 +32,12 @@ O fluxo é idêntico aos outros templates:
 
 > ℹ️ Apps `target_env ∈ {staging, shared-services}` não têm release flow — o bootstrap deleta o `release.yml`. Rollback de prod: re-run do `Release to production` apontando pra commit anterior.
 
-### Setup do release flow (automático no bootstrap)
+### Setup automatizado pelo bootstrap
 
-Pra `target_env ∈ {workspace, payments}`, o bootstrap cria a branch `release` (apontando pro main HEAD) e tenta criar ruleset "Protect release branch" (bloqueia `deletion` + `non_fast_forward`, bypass pro `pagamerican-gitops`). Se o ruleset falhar (token sem `Administration:Write`), emite warning — configure manualmente em **Settings → Rules → Rulesets**.
+- `.github/CODEOWNERS` com `chart/values-k8s-*.yaml @pagamericantech/infrastructure @pagamericantech/engineering` — protege os values do chart.
+- Pra `target_env ∈ {workspace, payments}`: cria branch `release` (apontando pro main HEAD) e tenta criar ruleset "Protect release branch" (bloqueia `deletion` + `non_fast_forward`, bypass pro `pagamerican-gitops`). Se o ruleset falhar (token sem `Administration:Write`), emite warning — configure manualmente em **Settings → Rules → Rulesets**.
 
 `release.yml` autentica via `pagamerican-gitops` (secrets `ORG_GITOPS_BOT_*`) — único actor com bypass.
-
-### Manual follow-up
-
-- `.github/CODEOWNERS` apontando `chart/values-k8s-${target_env}.yaml` pro time responsável (e.g., `@pagamericantech/infrastructure`).
 
 ## Como criar um novo cronjob a partir desse template
 
