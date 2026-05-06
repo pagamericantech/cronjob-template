@@ -400,3 +400,35 @@ jobs:
 
           git commit -am "chore: bootstrap complete — registered in ${REGISTRY_REPO} [skip ci]"
           git push origin HEAD:${{ github.ref_name }}
+
+          # Cria branch `release` apontando pro mesmo SHA do main pra apps com mirror
+          # staging→prod. ArgoCD prod (workspace/payments) tracka essa branch via
+          # targetRevision condicional. Inicialmente release == main; release.yml
+          # avanca essa branch quando engenheiro promove de staging.
+          case "${TARGET_ENV}" in
+            workspace|payments)
+              git push origin HEAD:release
+              echo "::notice::Branch 'release' criada apontando pro main HEAD."
+
+              # Tenta criar ruleset que protege a branch (bypass apenas pro pagamerican-gitops
+              # app). Pode falhar se o token nao tem permissao Administration:Write —
+              # nesse caso, emite warning pra criacao manual.
+              cat > /tmp/release-ruleset.json <<RULESET
+          {
+            "name": "Protect release branch",
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": {"ref_name": {"include": ["refs/heads/release"], "exclude": []}},
+            "rules": [{"type": "deletion"}, {"type": "non_fast_forward"}],
+            "bypass_actors": [{"actor_id": 3467660, "actor_type": "Integration", "bypass_mode": "always"}]
+          }
+          RULESET
+              if GH_TOKEN="${{ steps.app-token.outputs.token }}" gh api \
+                "repos/${GITHUB_REPOSITORY}/rulesets" \
+                --method POST --input /tmp/release-ruleset.json >/dev/null 2>&1; then
+                echo "::notice::Ruleset 'Protect release branch' criado (bypass: pagamerican-gitops)."
+              else
+                echo "::warning::Nao foi possivel criar o ruleset automaticamente (token sem Administration:Write?). Crie manualmente em Settings → Rules → Rulesets com bypass pro app pagamerican-gitops."
+              fi
+              ;;
+          esac
