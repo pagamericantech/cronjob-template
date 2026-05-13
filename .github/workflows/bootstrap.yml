@@ -355,6 +355,11 @@ jobs:
             sed -i "s|__OWNER__|${OWNER}|g" "$VALUES_FILE"
             sed -i "s|__LANGUAGE__|${LANGUAGE}|g" "$VALUES_FILE"
             sed -i "s|__NODEPOOL__|${NODEPOOL}|g" "$VALUES_FILE"
+            # Path dentro do mount Vault. Mount = cluster, configurado no
+            # ClusterSecretStore — o `key` é só o path relativo. Mesma key que o
+            # agent Datadog consome (api-key + app-key + site) e o módulo
+            # `datadog-bootstrap` em platform-infrastructure popula.
+            sed -i "s|__DATADOG_REMOTE_KEY__|datadog/api|g" "$VALUES_FILE"
             sed -i "s|k8s-aws-account|k8s-${TARGET_ENV}|g" "$VALUES_FILE"
 
             # Quando o cluster alvo eh o proprio staging, o values precisa refletir
