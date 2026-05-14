@@ -56,6 +56,12 @@ tolerations:
 cloudProviders:
   aws:
     enabled: true
+    # IAM role da app (preencher com o ARN da role criada em platform-applications/aws/<env>/iam/__APP_NAME__).
+    roleArn: ""
+    # Pod Identity (eks-pod-identity-agent socket) — default pra novas apps.
+    # Bypassa o webhook IRSA do EKS control plane (que travou em staging).
+    # Requer `pod_identity_associations` na role IAM (binding cluster/ns/sa → role).
+    usePodIdentity: true
     # Pull de ECR via IRSA/PodIdentity do namespace — não precisa de imagePullSecret.
     imagePullSecrets:
       name:
